@@ -499,23 +499,51 @@ export default function Home() {
       const conversationHistory = messages
         .filter(msg => (msg.type === 'sent' && msg.transcript) || (msg.type === 'received' && msg.text))
         .slice(-6)
-      
-      const res = await fetch('/api/openai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          message: transcript, 
-          learningLanguage, 
-          conversationHistory, 
-          inputLanguage,
-          lessonId: appMode === 'learning' ? selectedLessonId : undefined,
-          conversationPresetId: appMode === 'conversation' ? selectedConversationPresetId : undefined,
-        }),
-      })
-      const data = await res.json()
-      const responseItems = data.response || data.chunks || []
-      const vocab: Array<{ term: string; translation: string; pronunciation: string }> =
-        Array.isArray(data.vocab) ? data.vocab : []
+
+      const payload = { 
+        message: transcript, 
+        learningLanguage, 
+        conversationHistory, 
+        inputLanguage,
+        lessonId: appMode === 'learning' ? selectedLessonId : undefined,
+        conversationPresetId: appMode === 'conversation' ? selectedConversationPresetId : undefined,
+      }
+
+      const MAX_ATTEMPTS = 2
+      let responseItems: any[] = []
+      let vocab: Array<{ term: string; translation: string; pronunciation: string }> = []
+
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        const res = await fetch('/api/openai', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+
+        let data: any = null
+        try {
+          data = await res.json()
+        } catch {
+          data = null
+        }
+
+        if (!res.ok) {
+          // Retry once for known "retryable" failures
+          if (data?.retryable && attempt < MAX_ATTEMPTS) continue
+          throw new Error(data?.error || 'Failed to get response')
+        }
+
+        responseItems = (data?.response || data?.chunks || []) as any[]
+        vocab = Array.isArray(data?.vocab) ? data.vocab : []
+
+        // Drop empty/whitespace chunks (defensive; API also filters these)
+        responseItems = responseItems
+          .map((c: any) => ({ ...c, text: typeof c?.text === 'string' ? c.text.trim() : '' }))
+          .filter((c: any) => typeof c.text === 'string' && c.text.length > 0)
+
+        if (responseItems.length > 0) break
+        if (attempt < MAX_ATTEMPTS) continue
+      }
 
       if (responseItems.length === 0) {
         setCurrentState('idle')
