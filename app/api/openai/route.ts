@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { buildSystemPrompt, languageCodeMap } from '@/lib/prompt-builder'
 import { getLessonWithPhrases, UserPreferences } from '@/lib/lessons'
+import { getConversationPreset } from '@/lib/conversation-presets'
 
 type VocabItem = {
   term: string
@@ -16,6 +17,7 @@ export async function POST(request: NextRequest) {
       conversationHistory, 
       inputLanguage,
       lessonId,
+      conversationPresetId,
       userPreferences 
     } = await request.json()
 
@@ -39,6 +41,7 @@ export async function POST(request: NextRequest) {
 
     // Get lesson config if provided (with language-specific phrases)
     const lesson = lessonId ? getLessonWithPhrases(lessonId, targetLanguage) : undefined
+    const conversationPreset = getConversationPreset(conversationPresetId)
 
     // Build the layered system prompt
     const systemPrompt = buildSystemPrompt({
@@ -46,7 +49,10 @@ export async function POST(request: NextRequest) {
       targetLanguageCode,
       lesson,
       userPreferences: userPreferences as UserPreferences | undefined,
-      inputLanguage
+      inputLanguage,
+      conversationPreset: conversationPreset
+        ? { title: conversationPreset.title, systemInstructions: conversationPreset.systemInstructions }
+        : undefined,
     })
 
     // Process conversation history - get last 3 conversation pairs

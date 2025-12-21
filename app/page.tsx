@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import {
   Select,
   SelectContent,
@@ -9,6 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { getAllLessons, type LessonConfig } from '@/lib/lessons'
+import { conversationPresets, type ConversationPresetId } from '@/lib/conversation-presets'
 
 type Message = {
   id: string
@@ -22,6 +24,7 @@ type Message = {
 }
 
 type LearningLanguage = 'French' | 'Spanish' | 'Chinese' | 'Japanese'
+type AppMode = 'conversation' | 'learning'
 
 const LANGUAGE_CODES: Record<LearningLanguage, string> = {
   'French': 'fr-FR',
@@ -30,23 +33,232 @@ const LANGUAGE_CODES: Record<LearningLanguage, string> = {
   'Japanese': 'ja-JP'
 }
 
-const DIFFICULTY_COLORS: Record<number, { bg: string; text: string; border: string }> = {
-  1: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
-  2: { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200' },
-  3: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
-  4: { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200' },
-  5: { bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200' }
+const SPRING = { type: 'spring' as const, stiffness: 420, damping: 34, mass: 0.8 }
+const SPRING_SOFT = { type: 'spring' as const, stiffness: 260, damping: 28, mass: 0.9 }
+
+function StatusWithDots({ label, reduceMotion }: { label: string; reduceMotion: boolean }) {
+  if (reduceMotion) return <span>{label}</span>
+
+  const dot = {
+    initial: { opacity: 0.25, y: 0 },
+    animate: (i: number) => ({
+      opacity: [0.25, 1, 0.25],
+      y: [0, -2, 0],
+      transition: { duration: 0.9, repeat: Infinity, delay: i * 0.12 },
+    }),
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span>{label}</span>
+      <span className="inline-flex w-[18px] justify-start">
+        <motion.span variants={dot} custom={0} initial="initial" animate="animate" className="inline-block">.</motion.span>
+        <motion.span variants={dot} custom={1} initial="initial" animate="animate" className="inline-block">.</motion.span>
+        <motion.span variants={dot} custom={2} initial="initial" animate="animate" className="inline-block">.</motion.span>
+      </span>
+    </span>
+  )
+}
+
+function LessonsModal({
+  open,
+  onClose,
+  lessons,
+  selectedLessonId,
+  onSelectLesson,
+  reduceMotion,
+  disabled,
+}: {
+  open: boolean
+  onClose: () => void
+  lessons: LessonConfig[]
+  selectedLessonId: string | null
+  onSelectLesson: (lessonId: string | null) => void
+  reduceMotion: boolean
+  disabled: boolean
+}) {
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          key="lesson-modal-overlay"
+          initial={reduceMotion ? false : { opacity: 0 }}
+          animate={reduceMotion ? undefined : { opacity: 1 }}
+          exit={reduceMotion ? undefined : { opacity: 0 }}
+          transition={SPRING_SOFT}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
+          onClick={() => {
+            if (!disabled) onClose()
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Select a lesson"
+        >
+          <motion.div
+            key="lesson-modal"
+            initial={reduceMotion ? false : { opacity: 0, y: 10, scale: 0.99 }}
+            animate={reduceMotion ? undefined : { opacity: 1, y: 0, scale: 1 }}
+            exit={reduceMotion ? undefined : { opacity: 0, y: 10, scale: 0.99 }}
+            transition={SPRING_SOFT}
+            className="w-full max-w-lg rounded-3xl border border-neutral-200 bg-white shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-200">
+              <div>
+                <div className="text-sm font-semibold text-neutral-800">Select a lesson</div>
+                <div className="text-xs text-neutral-500">Choose one to start structured practice.</div>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={disabled}
+                className={`h-9 w-9 rounded-full border border-neutral-200 text-neutral-700 transition-colors ${
+                  disabled ? 'opacity-60 cursor-not-allowed' : 'hover:bg-neutral-50 active:bg-neutral-100'
+                }`}
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="max-h-[60vh] overflow-y-auto p-3 flex flex-col gap-2">
+              {lessons.map((lesson) => {
+                const isSelected = selectedLessonId === lesson.id
+                return (
+                  <button
+                    key={lesson.id}
+                    type="button"
+                    onClick={() => onSelectLesson(lesson.id)}
+                    disabled={disabled}
+                    className={`w-full text-left p-3 rounded-2xl border transition-all duration-200 ${
+                      isSelected ? 'bg-neutral-200 border-neutral-300' : 'bg-white border-neutral-200 hover:border-neutral-300 hover:bg-neutral-50'
+                    } ${disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="mr-1">{lesson.emoji}</span>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-medium text-neutral-800 text-sm leading-tight">{lesson.title}</h3>
+                        <p className="text-xs text-neutral-500 mt-1 line-clamp-1">Level {lesson.difficulty}</p>
+                      </div>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+}
+
+function ConversationModal({
+  open,
+  onClose,
+  selectedPresetId,
+  onSelectPreset,
+  reduceMotion,
+  disabled,
+}: {
+  open: boolean
+  onClose: () => void
+  selectedPresetId: ConversationPresetId
+  onSelectPreset: (presetId: ConversationPresetId) => void
+  reduceMotion: boolean
+  disabled: boolean
+}) {
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          key="conversation-modal-overlay"
+          initial={reduceMotion ? false : { opacity: 0 }}
+          animate={reduceMotion ? undefined : { opacity: 1 }}
+          exit={reduceMotion ? undefined : { opacity: 0 }}
+          transition={SPRING_SOFT}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
+          onClick={() => {
+            if (!disabled) onClose()
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Select conversation mode"
+        >
+          <motion.div
+            key="conversation-modal"
+            initial={reduceMotion ? false : { opacity: 0, y: 10, scale: 0.99 }}
+            animate={reduceMotion ? undefined : { opacity: 1, y: 0, scale: 1 }}
+            exit={reduceMotion ? undefined : { opacity: 0, y: 10, scale: 0.99 }}
+            transition={SPRING_SOFT}
+            className="w-full max-w-lg rounded-3xl border border-neutral-200 bg-white shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-200">
+              <div>
+                <div className="text-sm font-semibold text-neutral-800">Conversation mode</div>
+                <div className="text-xs text-neutral-500">Pick a style for your chat session.</div>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={disabled}
+                className={`h-9 w-9 rounded-full border border-neutral-200 text-neutral-700 transition-colors ${
+                  disabled ? 'opacity-60 cursor-not-allowed' : 'hover:bg-neutral-50 active:bg-neutral-100'
+                }`}
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="max-h-[60vh] overflow-y-auto p-3 flex flex-col gap-2">
+              {conversationPresets.map((preset) => {
+                const isSelected = selectedPresetId === preset.id
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => onSelectPreset(preset.id)}
+                    disabled={disabled}
+                    className={`w-full text-left p-3 rounded-2xl border transition-all duration-200 ${
+                      isSelected ? 'bg-neutral-200 border-neutral-300' : 'bg-white border-neutral-200 hover:border-neutral-300 hover:bg-neutral-50'
+                    } ${disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-medium text-neutral-800 text-sm leading-tight">{preset.title}</h3>
+                        <p className="text-xs text-neutral-500 mt-1 line-clamp-2">{preset.description}</p>
+                      </div>
+                      {isSelected && (
+                        <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 bg-neutral-900 text-white">
+                          Selected
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
 }
 
 export default function Home() {
   const [isListening, setIsListening] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
   const [currentState, setCurrentState] = useState<'idle' | 'listening' | 'thinking' | 'reading'>('idle')
+  const [appMode, setAppMode] = useState<AppMode>('conversation')
   const [learningLanguage, setLearningLanguage] = useState<LearningLanguage>('French')
   const [listeningLanguage, setListeningLanguage] = useState<'english' | 'learning'>('english')
   const [selectedLessonId, setSelectedLessonId] = useState<string | null>(null)
+  const [isLessonModalOpen, setIsLessonModalOpen] = useState(false)
   const [lessons] = useState<LessonConfig[]>(getAllLessons())
   const [ttsProvider, setTtsProvider] = useState<'elevenlabs' | 'browser' | 'openai'>('browser')
+  const [selectedConversationPresetId, setSelectedConversationPresetId] = useState<ConversationPresetId>('free-chat')
+  const [isConversationModalOpen, setIsConversationModalOpen] = useState(false)
   const recognitionRef = useRef<SpeechRecognition | null>(null)
   const englishRecognitionRef = useRef<SpeechRecognition | null>(null)
   const learningRecognitionRef = useRef<SpeechRecognition | null>(null)
@@ -61,8 +273,10 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const userHasScrolledRef = useRef<boolean>(false)
+  const reduceMotion = useReducedMotion()
 
   const selectedLesson = lessons.find(l => l.id === selectedLessonId)
+  const selectedConversationPreset = conversationPresets.find((p) => p.id === selectedConversationPresetId)
 
   const playChunksSequentially = async (chunks: Array<{text: string, language: string}>, messageIds: string[], userActivated: boolean) => {
     // Use browser TTS if provider is 'browser'
@@ -294,7 +508,8 @@ export default function Home() {
           learningLanguage, 
           conversationHistory, 
           inputLanguage,
-          lessonId: selectedLessonId
+          lessonId: appMode === 'learning' ? selectedLessonId : undefined,
+          conversationPresetId: appMode === 'conversation' ? selectedConversationPresetId : undefined,
         }),
       })
       const data = await res.json()
@@ -582,11 +797,56 @@ export default function Home() {
     }
   }
 
-  const handleLessonSelect = (lessonId: string) => {
+  const handleSelectLessonFromModal = (lessonId: string | null) => {
     if (currentState !== 'idle') return
-    setSelectedLessonId(lessonId === selectedLessonId ? null : lessonId)
-    // Clear conversation when switching lessons
-    setMessages([])
+    setSelectedLessonId(lessonId)
+    setMessages([]) // Clear conversation when switching lessons
+    setIsLessonModalOpen(false)
+  }
+
+  const handleSelectConversationPresetFromModal = (presetId: ConversationPresetId) => {
+    if (currentState !== 'idle') return
+    setSelectedConversationPresetId(presetId)
+    setMessages([]) // Clear conversation when switching conversation modes
+    setIsConversationModalOpen(false)
+  }
+
+  useEffect(() => {
+    if (!isLessonModalOpen) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && currentState === 'idle') setIsLessonModalOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isLessonModalOpen, currentState])
+
+  useEffect(() => {
+    if (!isConversationModalOpen) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && currentState === 'idle') setIsConversationModalOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isConversationModalOpen, currentState])
+
+  const handleStartLesson = () => {
+    if (currentState !== 'idle') return
+    if (appMode !== 'learning') return
+    if (!selectedLesson) return
+
+    // Ensure we don't accidentally attach a previous recording to this manual message
+    audioChunksRef.current = []
+
+    const text = "Let's begin the lesson!"
+    const messageId = Date.now().toString()
+
+    setMessages(prev => [
+      ...prev,
+      { id: messageId, type: 'sent', transcript: text, inputLanguage: 'english' }
+    ])
+
+    // Use the same pipeline as voice input (minus audio recording)
+    processRecording(text, messageId, 'english', true)
   }
 
   const getButtonText = (language: 'english' | 'learning') => {
@@ -599,7 +859,12 @@ export default function Home() {
   return (
     <main className="flex h-screen">
       {/* Sidebar */}
-      <aside className="w-72 border border-neutral-200 rounded-3xl shadow-xl p-5 m-8 flex flex-col gap-6">
+      <motion.aside
+        initial={reduceMotion ? false : { opacity: 0, x: -10 }}
+        animate={reduceMotion ? undefined : { opacity: 1, x: 0 }}
+        transition={SPRING_SOFT}
+        className="w-72 h-[calc(100vh-4rem)] border border-neutral-200 rounded-3xl shadow-xl p-5 m-8 flex flex-col gap-6 overflow-hidden"
+      >
         {/* Language Selection */}
         <div>
           <label className="text-sm font-medium text-neutral-400 mb-2 block">Learning</label>
@@ -662,175 +927,376 @@ export default function Home() {
           </Select>
         </div>
 
-        {/* Lessons Section */}
-        <div className="flex flex-col gap-3">
-          <label className="text-sm font-medium text-neutral-400">Lessons</label>
-          
-          {lessons.map((lesson) => {
-            const colors = DIFFICULTY_COLORS[lesson.difficulty]
-            const isSelected = selectedLessonId === lesson.id
-            
-            return (
-              <button
-                key={lesson.id}
-                onClick={() => handleLessonSelect(lesson.id)}
-                disabled={currentState !== 'idle'}
-                className={`
-                  w-full text-left p-3 rounded-xl border-2 transition-all duration-200
-                  ${isSelected 
-                    ? 'bg-neutral-200 border-neutral-300' 
-                    : 'bg-white border-neutral-200 hover:border-neutral-300 hover:bg-neutral-50'
-                  }
-                  ${currentState !== 'idle' ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}
-                `}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-medium text-neutral-800 text-sm leading-tight">
-                      <span className="mr-1">{lesson.emoji}</span>
-                      {lesson.title}
-                    </h3>
-                    <p className="text-xs text-neutral-500 mt-1 line-clamp-1">
-                      {lesson.description}
-                    </p>
-                  </div>
-                  <span className={`
-                    text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0
-                    ${colors.bg} ${colors.text}
-                  `}>
-                    LV {lesson.difficulty}
-                  </span>
-                </div>
-              </button>
-            )
-          })}
-
-          {/* Free Practice Option */}
-          <button
-            onClick={() => handleLessonSelect('')}
-            disabled={currentState !== 'idle'}
-            className={`
-              w-full text-left p-3 rounded-xl border-2 transition-all duration-200
-              ${selectedLessonId === null 
-                ? 'bg-neutral-200 border-neutral-300' 
-                : 'bg-white border-neutral-200 hover:border-neutral-300 hover:bg-neutral-50'
-              }
-              ${currentState !== 'idle' ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}
-            `}
+        {/* Mode Tabs */}
+        <div className="flex flex-col items-start justify-stretch gap-2">
+          <div className="text-sm font-medium text-neutral-400">Mode</div>
+          <div
+            className={`w-full grid grid-cols-2 gap-1 rounded-2xl border border-neutral-200 bg-white p-1 ${
+              currentState !== 'idle' ? 'opacity-70' : ''
+            }`}
           >
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex-1 min-w-0">
-                <h3 className="font-medium text-neutral-800 text-sm leading-tight">
-                  <span className="mr-1">🗣️</span>
-                  Free Practice
-                </h3>
-                <p className="text-xs text-neutral-500 mt-1 line-clamp-1">
-                  Open conversation, adaptive difficulty
-                </p>
-              </div>
-              <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full shrink-0 bg-blue-50 text-blue-700">
-                Flexible
-              </span>
-            </div>
-          </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (currentState !== 'idle') return
+                setAppMode('conversation')
+                setMessages([])
+                setIsLessonModalOpen(false)
+                setIsConversationModalOpen(false)
+              }}
+              disabled={currentState !== 'idle'}
+              aria-pressed={appMode === 'conversation'}
+              className={`w-full px-3 py-2 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center ${
+                appMode === 'conversation'
+                  ? 'bg-neutral-900 text-white shadow-sm'
+                  : 'text-neutral-700 hover:bg-neutral-50'
+              } ${currentState !== 'idle' ? 'cursor-not-allowed' : ''}`}
+            >
+              Conversation
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (currentState !== 'idle') return
+                setAppMode('learning')
+                setMessages([])
+                setIsLessonModalOpen(false)
+                setIsConversationModalOpen(false)
+              }}
+              disabled={currentState !== 'idle'}
+              aria-pressed={appMode === 'learning'}
+              className={`w-full px-3 py-2 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center ${
+                appMode === 'learning'
+                  ? 'bg-neutral-900 text-white shadow-sm'
+                  : 'text-neutral-700 hover:bg-neutral-50'
+              } ${currentState !== 'idle' ? 'cursor-not-allowed' : ''}`}
+            >
+              Learning
+            </button>
+          </div>
         </div>
 
-      </aside>
+        {/* Lessons Section */}
+        <div className="flex flex-1 min-h-0 flex-col gap-3">
+          <label className="text-sm font-medium text-neutral-400">
+            {appMode === 'learning' ? 'Lesson' : 'Conversation'}
+          </label>
+
+          <div className="flex-1 min-h-0 flex flex-col gap-3">
+            {appMode === 'learning' && selectedLesson ? (
+              <motion.div
+                initial={reduceMotion ? false : { opacity: 0, y: 6 }}
+                animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
+                transition={SPRING_SOFT}
+                className="rounded-2xl border border-neutral-200 bg-white p-4"
+              >
+                <div className="flex items-start gap-2">
+                  <div className="text-lg leading-none">{selectedLesson.emoji}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold text-neutral-800 leading-tight">{selectedLesson.title}</div>
+                    <div className="text-xs text-neutral-500 mt-1">Level {selectedLesson.difficulty}</div>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsLessonModalOpen(true)}
+                    disabled={currentState !== 'idle'}
+                    className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold transition-colors ${
+                      currentState !== 'idle'
+                        ? 'bg-neutral-200 text-neutral-500 cursor-not-allowed'
+                        : 'bg-neutral-200 text-neutral-500 hover:bg-neutral-300 active:bg-neutral-300'
+                    }`}
+                  >
+                    Change
+                  </button>
+                </div>
+              </motion.div>
+            ) : appMode === 'learning' ? (
+              <motion.button
+                type="button"
+                onClick={() => setIsLessonModalOpen(true)}
+                disabled={currentState !== 'idle'}
+                whileHover={reduceMotion || currentState !== 'idle' ? undefined : { y: -1, scale: 1.01 }}
+                whileTap={reduceMotion || currentState !== 'idle' ? undefined : { scale: 0.99 }}
+                transition={SPRING_SOFT}
+                className={`w-full rounded-2xl border px-4 py-3 text-sm font-semibold transition-colors ${
+                  currentState !== 'idle'
+                    ? 'bg-neutral-200 border-neutral-200 text-neutral-500 cursor-not-allowed'
+                    : 'bg-white border-neutral-200 text-neutral-900 hover:bg-neutral-50 hover:border-neutral-300 active:bg-neutral-100'
+                }`}
+              >
+                Select lesson
+              </motion.button>
+            ) : (
+              <motion.div
+                initial={reduceMotion ? false : { opacity: 0, y: 6 }}
+                animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
+                transition={SPRING_SOFT}
+                className="rounded-2xl border border-neutral-200 bg-white p-4"
+              >
+                <div className="text-sm font-semibold text-neutral-800 leading-tight">
+                  {selectedConversationPreset?.title || 'Free chat'}
+                </div>
+                <div className="text-xs text-neutral-500 mt-1">
+                  {selectedConversationPreset?.description || 'Open-ended conversation.'}
+                </div>
+
+                <div className="mt-4 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsConversationModalOpen(true)}
+                    disabled={currentState !== 'idle'}
+                    className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold transition-colors ${
+                      currentState !== 'idle'
+                        ? 'bg-neutral-200 text-neutral-500 cursor-not-allowed'
+                        : 'bg-neutral-200 text-neutral-500 hover:bg-neutral-300 active:bg-neutral-300'
+                    }`}
+                  >
+                    Change
+                  </button>
+                </div>
+              </motion.div>
+            )}
+
+            {appMode === 'learning' && !selectedLesson && (
+              <div className="text-xs text-neutral-500">
+                No lesson selected. Choose one to start structured practice.
+              </div>
+            )}
+          </div>
+          
+        </div>
+
+      </motion.aside>
+
+      <LessonsModal
+        open={appMode === 'learning' && isLessonModalOpen}
+        onClose={() => setIsLessonModalOpen(false)}
+        lessons={lessons}
+        selectedLessonId={selectedLessonId}
+        onSelectLesson={handleSelectLessonFromModal}
+        reduceMotion={!!reduceMotion}
+        disabled={currentState !== 'idle'}
+      />
+
+      <ConversationModal
+        open={appMode === 'conversation' && isConversationModalOpen}
+        onClose={() => setIsConversationModalOpen(false)}
+        selectedPresetId={selectedConversationPresetId}
+        onSelectPreset={handleSelectConversationPresetFromModal}
+        reduceMotion={!!reduceMotion}
+        disabled={currentState !== 'idle'}
+      />
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col relative overflow-hidden">
         {/* Scrollable messages area */}
         <div 
           ref={messagesContainerRef}
-          className="flex-1 overflow-y-auto flex flex-col gap-4 p-4 max-w-[700px] w-full mx-auto pb-[280px] pt-12"
+          className="flex-1 overflow-y-auto flex flex-col gap-4 p-4 w-full mx-auto pb-[400px] pt-12"
         >
-          {/* Lesson Info */}
-          {selectedLesson && (
-            <div className="w-full bg-neutral-100 rounded-3xl p-4 border border-neutral-200">
-              <h2 className="text-lg font-semibold text-neutral-800 mb-3">
-                {selectedLesson.title}
-              </h2>
-              <div className="text-xs text-neutral-500">
-                <ul className="space-y-1.5">
-                  {selectedLesson.objectives.map((obj, i) => (
-                    <li key={i} className="flex items-start gap-2">
-                      <span className="text-neutral-400 mt-0.5">•</span>
-                      <span>{obj}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          )}
-          
-          {messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex ${msg.type === 'sent' ? 'justify-end' : 'justify-start'}`}
-            >
-              <div className={`max-w-[70%] text-sm px-4 py-3 rounded-3xl ${
-                msg.type === 'sent' 
-                  ? 'bg-blue-500 text-white' 
-                  : 'bg-gray-200 text-gray-800'
-              }`}>
-                
-                {msg.transcript && (
-                  <div className={`font-medium ${msg.state === 'listening' ? 'italic opacity-90' : ''}`}>
-                    {msg.transcript}
-                  </div>
-                )}
-                
-                {msg.text && (
-                  <div className={msg.audioUrl ? 'mb-0' : ''}>{msg.text}</div>
-                )}
-
-                {msg.type === 'received' && msg.vocab && msg.vocab.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {msg.vocab.map((v) => (
-                      <span key={v.term} className="relative inline-flex">
-                        <span className="group inline-flex">
-                          <span className="inline-flex items-center rounded-full border border-neutral-300 bg-white/70 px-2.5 py-1 text-[11px] font-medium text-neutral-700">
-                            {v.term}
-                          </span>
-                          <span className="pointer-events-none absolute left-1/2 top-0 z-30 hidden -translate-x-1/2 -translate-y-[calc(100%+8px)] group-hover:block">
-                            <span className="block w-max max-w-[240px] rounded-xl border border-neutral-200 bg-white px-3 py-2 text-[11px] text-neutral-800 shadow-lg">
-                              <div className="font-semibold">{v.translation || '—'}</div>
-                              <div className="text-neutral-500">{v.pronunciation || '—'}</div>
-                            </span>
-                          </span>
-                        </span>
-                      </span>
+          <div className="max-w-2xl mx-auto">
+              
+            {/* Lesson Info */}
+            <AnimatePresence mode="wait">
+              {appMode === 'learning' && selectedLesson && (
+                <motion.div
+                  key={selectedLesson.id}
+                  initial={reduceMotion ? false : { opacity: 0, y: 10, scale: 0.99 }}
+                  animate={reduceMotion ? undefined : { opacity: 1, y: 0, scale: 1 }}
+                  exit={reduceMotion ? undefined : { opacity: 0, y: 8, scale: 0.99 }}
+                  transition={SPRING_SOFT}
+                  className="w-full bg-neutral-100 rounded-3xl p-4 border border-neutral-200 mb-8"
+                >
+                  <motion.h2
+                    layout="position"
+                    className="text-lg font-semibold text-neutral-800 mb-3 text-center"
+                  >
+                    {selectedLesson.title}
+                  </motion.h2>
+                  <motion.div layout className="flex gap-3 mt-2">
+                    {selectedLesson.objectives.slice(0, 3).map((obj, i) => (
+                      <motion.div
+                        key={i}
+                        layout
+                        transition={SPRING_SOFT}
+                        className="flex-1 bg-white rounded-xl border border-neutral-200 p-3 text-sm text-neutral-500 shadow-sm min-w-0 text-center flex justify-center items-center"
+                      >
+                        {obj}
+                      </motion.div>
                     ))}
-                  </div>
-                )}
+                  </motion.div>
 
-                <div className="flex justify-end text-xs font-medium text-black/25">
-                  {msg.state === 'listening' && !msg.transcript && <div>Listening...</div>}
-                  {msg.state === 'thinking' && <div>Thinking...</div>}
-                  {msg.state === 'reading' && <div>Reading...</div>}
-                </div>
-              </div>
-            </div>
-          ))}
-          <div ref={messagesEndRef} />
+                  <motion.button
+                    onClick={handleStartLesson}
+                    disabled={currentState !== 'idle'}
+                    whileHover={reduceMotion || currentState !== 'idle' ? undefined : { scale: 1.01 }}
+                    whileTap={reduceMotion || currentState !== 'idle' ? undefined : { scale: 0.99 }}
+                    transition={SPRING}
+                    className={`
+                      mt-4 w-full rounded-2xl px-4 py-3 text-sm font-semibold text-white transition-colors
+                      ${currentState !== 'idle'
+                        ? 'bg-blue-400 opacity-70 cursor-not-allowed'
+                        : 'bg-blue-500 hover:bg-blue-600 active:bg-blue-700'
+                      }
+                    `}
+                  >
+                    <AnimatePresence mode="wait" initial={false}>
+                      {currentState === 'idle' ? (
+                        <motion.span
+                          key="start"
+                          initial={reduceMotion ? false : { opacity: 0, y: 6 }}
+                          animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
+                          exit={reduceMotion ? undefined : { opacity: 0, y: -6 }}
+                          transition={SPRING_SOFT}
+                          className="inline-flex items-center justify-center w-full"
+                        >
+                          Start lesson
+                        </motion.span>
+                      ) : (
+                        <motion.span
+                          key="loading"
+                          initial={reduceMotion ? false : { opacity: 0, y: 6 }}
+                          animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
+                          exit={reduceMotion ? undefined : { opacity: 0, y: -6 }}
+                          transition={SPRING_SOFT}
+                          className="inline-flex items-center justify-center w-full"
+                        >
+                          <StatusWithDots label="Loading" reduceMotion={!!reduceMotion} />
+                        </motion.span>
+                      )}
+                    </AnimatePresence>
+                  </motion.button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+            
+            <AnimatePresence initial={false}>
+              {messages.map((msg) => (
+                <motion.div
+                  key={msg.id}
+                  layout="position"
+                  initial={reduceMotion ? false : { opacity: 0, y: 10, scale: 0.985 }}
+                  animate={reduceMotion ? undefined : { opacity: 1, y: 0, scale: 1 }}
+                  exit={reduceMotion ? undefined : { opacity: 0, y: -10, scale: 0.985 }}
+                  transition={SPRING_SOFT}
+                  className={`flex ${msg.type === 'sent' ? 'justify-end' : 'justify-start'}`}
+                >
+                  <motion.div
+                    layout
+                    transition={SPRING_SOFT}
+                    className={`max-w-[70%] text-sm px-4 py-3 mb-2 rounded-3xl ${
+                      msg.type === 'sent' 
+                        ? 'bg-blue-500 text-white' 
+                        : 'bg-gray-200 text-gray-800'
+                    }`}
+                  >
+                  
+                    {msg.transcript && (
+                      <motion.div
+                        layout="position"
+                        transition={SPRING_SOFT}
+                        className={`font-medium ${msg.state === 'listening' ? 'italic opacity-90' : ''}`}
+                      >
+                        {msg.transcript}
+                      </motion.div>
+                    )}
+                  
+                    {msg.text && (
+                      <motion.div layout="position" transition={SPRING_SOFT} className={msg.audioUrl ? 'mb-0' : ''}>
+                        {msg.text}
+                      </motion.div>
+                    )}
+
+                    {msg.type === 'received' && msg.vocab && msg.vocab.length > 0 && (
+                      <motion.div layout className="mt-2 flex flex-wrap gap-2">
+                        {msg.vocab.map((v) => (
+                          <motion.span
+                            key={v.term}
+                            layout
+                            transition={SPRING_SOFT}
+                            className="relative inline-flex"
+                          >
+                            <span className="group inline-flex">
+                              <span className="inline-flex items-center rounded-full border border-neutral-300 bg-white/70 px-2.5 py-1 text-[11px] font-medium text-neutral-700">
+                                {v.term}
+                              </span>
+                              <span className="pointer-events-none absolute left-1/2 top-0 z-30 hidden -translate-x-1/2 -translate-y-[calc(100%+8px)] group-hover:block">
+                                <span className="block w-max max-w-[240px] rounded-xl border border-neutral-200 bg-white px-3 py-2 text-[11px] text-neutral-800 shadow-lg">
+                                  <div className="font-semibold">{v.translation || '—'}</div>
+                                  <div className="text-neutral-500">{v.pronunciation || '—'}</div>
+                                </span>
+                              </span>
+                            </span>
+                          </motion.span>
+                        ))}
+                      </motion.div>
+                    )}
+
+                    <div className="flex justify-end text-xs font-medium text-black/25">
+                      {msg.state === 'listening' && !msg.transcript && (
+                        <StatusWithDots label="Listening" reduceMotion={!!reduceMotion} />
+                      )}
+                      {msg.state === 'thinking' && (
+                        <StatusWithDots label="Thinking" reduceMotion={!!reduceMotion} />
+                      )}
+                      {msg.state === 'reading' && (
+                        <StatusWithDots label="Reading" reduceMotion={!!reduceMotion} />
+                      )}
+                    </div>
+                  </motion.div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+            <div ref={messagesEndRef} />
+          
+          </div>
         </div>
 
-        {/* Sticky buttons at bottom with gradient fade */}
-        <div className="sticky bottom-0 left-0 right-0 flex flex-col items-center pt-8 pb-16 gap-4 z-20 relative">
-          {/* Gradient fade overlay */}
-          <div className="absolute inset-x-0 top-0 h-32 pointer-events-none bg-gradient-to-t from-white via-white/80 to-transparent" />
-          
+        {/* Buttons at bottom with gradient fade */}
+        <div className="absolute bottom-0 left-0 right-0 flex flex-col items-center pt-8 pb-8 gap-4 z-0">
+          {/* Masked Gradient Blur */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute left-0 right-0 bottom-0 top-0 h-full z-0"
+            style={{
+              WebkitMaskImage: "linear-gradient(to bottom, rgba(0,0,0,0) 0%, #000 80%)",
+              maskImage: "linear-gradient(to bottom, rgba(0,0,0,0) 0%, #000 80%)",
+              backdropFilter: "blur(24px)",
+              background: "linear-gradient(to bottom, rgba(255,255,255,0.6) 60%, #fff 100%)",
+            }}
+          />
           <div className="relative z-10 flex flex-col items-center gap-4">
             <div className="flex flex-col items-center gap-4 w-full">
               <div className="flex gap-6 items-center">
                 {/* English Button */}
-                <div
+                <motion.button
+                  type="button"
                   onClick={() => handleTap('english')}
-                  className={`w-[120px] h-[120px] rounded-full flex items-center justify-center text-white text-md font-medium text-center transition-all duration-500
+                  disabled={currentState !== 'idle'}
+                  whileHover={reduceMotion || currentState !== 'idle' ? undefined : { scale: 1.05 }}
+                  whileTap={reduceMotion || currentState !== 'idle' ? undefined : { scale: 0.96 }}
+                  animate={
+                    reduceMotion
+                      ? undefined
+                      : (currentState === 'listening' && listeningLanguage === 'english')
+                        ? { scale: [1, 1.03, 1] }
+                        : { scale: 1 }
+                  }
+                  transition={
+                    reduceMotion
+                      ? SPRING
+                      : (currentState === 'listening' && listeningLanguage === 'english')
+                        ? { duration: 1.2, repeat: Infinity, ease: 'easeInOut' }
+                        : SPRING
+                  }
+                  className={`w-[120px] h-[120px] shadow-md rounded-full flex items-center justify-center text-white text-md font-medium text-center transition-all duration-800
                     ${
                       currentState !== 'idle'
                         ? 'bg-blue-500 cursor-not-allowed opacity-70'
-                        : 'bg-blue-500 cursor-pointer opacity-100 hover:bg-blue-600 hover:scale-105 hover:shadow-xl active:scale-95 active:shadow-lg'
+                        : 'bg-blue-500 cursor-pointer opacity-100 hover:bg-blue-600 hover:shadow-xl active:shadow-lg'
                     }
                     ${
                       currentState === 'listening' && listeningLanguage === 'english'
@@ -839,16 +1305,44 @@ export default function Home() {
                     }
                   `}
                 >
-                  {getButtonText('english')}
-                </div>
+                  <AnimatePresence mode="wait" initial={false}>
+                    <motion.span
+                      key={getButtonText('english')}
+                      initial={reduceMotion ? false : { opacity: 0, y: 6 }}
+                      animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
+                      exit={reduceMotion ? undefined : { opacity: 0, y: -6 }}
+                      transition={SPRING_SOFT}
+                    >
+                      {getButtonText('english')}
+                    </motion.span>
+                  </AnimatePresence>
+                </motion.button>
                 {/* Learning Language Button */}
-                <div
+                <motion.button
+                  type="button"
                   onClick={() => handleTap('learning')}
-                  className={`w-[120px] h-[120px] rounded-full flex items-center justify-center text-white text-md font-medium text-center transition-all duration-500
+                  disabled={currentState !== 'idle'}
+                  whileHover={reduceMotion || currentState !== 'idle' ? undefined : { scale: 1.05 }}
+                  whileTap={reduceMotion || currentState !== 'idle' ? undefined : { scale: 0.96 }}
+                  animate={
+                    reduceMotion
+                      ? undefined
+                      : (currentState === 'listening' && listeningLanguage === 'learning')
+                        ? { scale: [1, 1.03, 1] }
+                        : { scale: 1 }
+                  }
+                  transition={
+                    reduceMotion
+                      ? SPRING
+                      : (currentState === 'listening' && listeningLanguage === 'learning')
+                        ? { duration: 1.2, repeat: Infinity, ease: 'easeInOut' }
+                        : SPRING
+                  }
+                  className={`w-[120px] h-[120px] shadow-md rounded-full flex items-center justify-center text-white text-md font-medium text-center transition-all duration-800
                     ${
                       currentState !== 'idle'
                         ? 'bg-green-500 cursor-not-allowed opacity-70'
-                        : 'bg-green-500 cursor-pointer opacity-100 hover:bg-green-600 hover:scale-105 hover:shadow-xl active:scale-95 active:shadow-lg'
+                        : 'bg-green-500 cursor-pointer opacity-100 hover:bg-green-600 hover:shadow-xl active:shadow-lg'
                     }
                     ${
                       currentState === 'listening' && listeningLanguage === 'learning'
@@ -857,8 +1351,18 @@ export default function Home() {
                     }
                   `}
                 >
-                  {getButtonText('learning')}
-                </div>
+                  <AnimatePresence mode="wait" initial={false}>
+                    <motion.span
+                      key={getButtonText('learning')}
+                      initial={reduceMotion ? false : { opacity: 0, y: 6 }}
+                      animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
+                      exit={reduceMotion ? undefined : { opacity: 0, y: -6 }}
+                      transition={SPRING_SOFT}
+                    >
+                      {getButtonText('learning')}
+                    </motion.span>
+                  </AnimatePresence>
+                </motion.button>
               </div>
               <div className="text-xs text-neutral-400 text-center mt-2">
                 Press to speak in the specified language
@@ -866,12 +1370,16 @@ export default function Home() {
             </div>
 
             {isListening && (
-              <button
+              <motion.button
+                type="button"
                 onClick={handleStop}
-                className="px-4 py-2 bg-red-600 text-white border-none rounded-md text-sm cursor-pointer"
+                whileHover={reduceMotion ? undefined : { scale: 1.03 }}
+                whileTap={reduceMotion ? undefined : { scale: 0.97 }}
+                transition={SPRING}
+                className="px-4 py-2 bg-red-600 text-white border-none rounded-2xl text-sm cursor-pointer"
               >
                 Stop
-              </button>
+              </motion.button>
             )}
           </div>
         </div>
