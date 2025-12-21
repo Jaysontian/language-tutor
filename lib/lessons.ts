@@ -4,8 +4,10 @@ export type CorrectionStyle = 'gentle' | 'direct' | 'minimal'
 
 export interface LessonConfig {
   id: string
+  emoji: string
   title: string
   difficulty: Difficulty
+  description: string // short 1-line blurb for UI
   scenario?: string // roleplay context
   focusAreas?: string[] // grammar points, vocab themes, etc.
   targetRatio: {
@@ -25,8 +27,10 @@ export interface UserPreferences {
 export const lessons: Record<string, LessonConfig> = {
   'intro-easy': {
     id: 'intro-easy',
-    title: 'Meeting Someone New',
+    emoji: '👋',
+    title: 'Introductions',
     difficulty: 1,
+    description: 'Practice greetings and simple introductions in a friendly first-chat scenario.',
     scenario: 'You are a friendly student the user just met at a café. You speak mostly English but sprinkle in simple phrases from the target language.',
     targetRatio: { english: 80, target: 20 },
     objectives: [
@@ -37,8 +41,10 @@ export const lessons: Record<string, LessonConfig> = {
   },
   'intro-hard': {
     id: 'intro-hard',
-    title: 'Meeting Someone New (Immersive)',
+    emoji: '🌍',
+    title: 'Introductions',
     difficulty: 5,
+    description: 'Do full introductions mostly in the target language with minimal English support.',
     scenario: 'You are a native speaker who speaks very little English. Stay in the target language unless the user is truly stuck.',
     targetRatio: { english: 10, target: 90 },
     objectives: [
@@ -49,8 +55,10 @@ export const lessons: Record<string, LessonConfig> = {
   },
   'coffee-easy': {
     id: 'coffee-easy',
+    emoji: '☕️',
     title: 'Ordering Coffee',
     difficulty: 2,
+    description: 'Learn core café vocabulary, then roleplay ordering a drink politely.',
     scenario: 'You are a friendly barista at a café. First, teach the user key vocabulary words for ordering coffee (size, type, milk options, etc.). After they learn the vocabulary, transition into a roleplay where they practice ordering coffee from you.',
     targetRatio: { english: 70, target: 30 },
     focusAreas: ['Food & drink vocabulary', 'Polite requests', 'Numbers and sizes'],
@@ -62,16 +70,18 @@ export const lessons: Record<string, LessonConfig> = {
   },
   'coffee-hard': {
     id: 'coffee-hard',
-    title: 'Ordering Coffee (Advanced)',
+    emoji: '☕',
+    title: 'Flirty Café Banter',
     difficulty: 4,
-    scenario: 'You are a native-speaking barista at a busy café. First, quickly review advanced coffee vocabulary and cultural nuances. Then engage in a realistic roleplay where the user must handle special requests, dietary restrictions, and natural conversation flow.',
+    description: 'Turn your coffee order into a fun, flirtatious exchange! Practice advanced coffee vocab and charming chit-chat with a playful barista.',
+    scenario: `You're not just any barista — you're the charming, slightly flirty star of the café. Review advanced coffee vocabulary and show off your coffee knowledge, but also throw in a playful joke or a lighthearted compliment now and then. Make the conversation fun! The user should handle special requests and real café scenarios, all while enjoying a little fun back-and-forth. Keep things friendly, witty, but never awkward.`,
     targetRatio: { english: 20, target: 80 },
-    focusAreas: ['Advanced food vocabulary', 'Special requests', 'Cultural context', 'Natural conversation flow'],
+    focusAreas: ['Advanced food vocabulary', 'Special requests', 'Cultural context', 'Playful conversation'],
     objectives: [
-      'Master detailed coffee ordering vocabulary',
-      'Handle special requests and dietary restrictions',
-      'Engage in natural café conversation',
-      'Understand cultural ordering customs'
+      'Confidently order coffee with detailed, specific requests',
+      'Navigate real-world café scenarios and hidden menu items',
+      'Engage in fun, natural (and slightly flirty!) small talk with the barista',
+      'Understand cultural nuances of café socializing'
     ]
   }
 }

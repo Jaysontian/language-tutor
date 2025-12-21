@@ -687,10 +687,11 @@ export default function Home() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
                     <h3 className="font-medium text-neutral-800 text-sm leading-tight">
+                      <span className="mr-1">{lesson.emoji}</span>
                       {lesson.title}
                     </h3>
-                    <p className="text-xs text-neutral-400 mt-1 line-clamp-2">
-                      {lesson.objectives[0]}
+                    <p className="text-xs text-neutral-500 mt-1 line-clamp-1">
+                      {lesson.description}
                     </p>
                   </div>
                   <span className={`
@@ -720,9 +721,10 @@ export default function Home() {
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1 min-w-0">
                 <h3 className="font-medium text-neutral-800 text-sm leading-tight">
+                  <span className="mr-1">🗣️</span>
                   Free Practice
                 </h3>
-                <p className="text-xs text-neutral-500 mt-1">
+                <p className="text-xs text-neutral-500 mt-1 line-clamp-1">
                   Open conversation, adaptive difficulty
                 </p>
               </div>
