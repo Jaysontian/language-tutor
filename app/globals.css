@@ -62,8 +62,11 @@
   * {
     @apply border-border;
   }
+  html {
+    @apply bg-black;
+  }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-black text-foreground;
   }
 }
 

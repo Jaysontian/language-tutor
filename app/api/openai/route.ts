@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { buildConversationSystemPrompt, buildLessonSystemPrompt, languageCodeMap } from '@/lib/prompt-builder'
-import { getLessonWithVocabulary, UserPreferences } from '@/lib/lessons'
-import { getConversationPreset } from '@/lib/conversation-presets'
+import { buildSessionSystemPrompt, languageCodeMap } from '@/lib/prompt-builder'
+import { 
+  TopicStateUpdate, 
+  TopicProgressMetrics,
+  TopicStateEvent,
+  TopicWithVocab,
+  getTopicWithVocab,
+  UserPreferences,
+  TopicState,
+  createDefaultTopicState,
+  Objective,
+  VocabProgress
+} from '@/lib/topics'
 
 type VocabItem = {
   term: string
@@ -9,29 +19,100 @@ type VocabItem = {
   pronunciation: string
 }
 
+const VALID_EVENTS: TopicStateEvent[] = ['objective_completed', 'vocab_mastered', 'progress_made', 'session_end']
+
+/** Validate and parse topicStateUpdate from AI response */
+function parseTopicStateUpdate(raw: unknown): TopicStateUpdate | null {
+  if (!raw || typeof raw !== 'object') return null
+  
+  const obj = raw as Record<string, unknown>
+  
+  // Validate required fields
+  if (typeof obj.topicId !== 'string' || !obj.topicId) return null
+  if (typeof obj.event !== 'string' || !VALID_EVENTS.includes(obj.event as TopicStateEvent)) return null
+  if (typeof obj.summary !== 'string' || !obj.summary) return null
+  if (typeof obj.aiNotes !== 'string') return null
+  if (typeof obj.masteryLevel !== 'number' || obj.masteryLevel < 0 || obj.masteryLevel > 5) return null
+  
+  // Validate progressMetrics
+  const metrics = obj.progressMetrics
+  if (!metrics || typeof metrics !== 'object') return null
+  
+  const m = metrics as Record<string, unknown>
+  
+  // Parse objectives array
+  const objectives: Objective[] = Array.isArray(m.objectives)
+    ? m.objectives
+        .map((obj: any) => {
+          if (obj && typeof obj === 'object' && typeof obj.id === 'string' && typeof obj.complete === 'boolean') {
+            return { id: obj.id, complete: obj.complete }
+          }
+          return null
+        })
+        .filter((obj): obj is Objective => obj !== null)
+    : []
+  
+  // Parse vocab array
+  const vocab: VocabProgress[] = Array.isArray(m.vocab)
+    ? m.vocab
+        .map((v: any) => {
+          if (v && typeof v === 'object' && typeof v.term === 'string' && typeof v.complete === 'boolean') {
+            return { term: v.term, complete: v.complete }
+          }
+          return null
+        })
+        .filter((v): v is VocabProgress => v !== null)
+    : []
+  
+  const progressMetrics: TopicProgressMetrics = {
+    objectives,
+    vocab,
+    sessionsCompleted: typeof m.sessionsCompleted === 'number' ? m.sessionsCompleted : 0,
+  }
+  
+  return {
+    topicId: obj.topicId,
+    event: obj.event as TopicStateEvent,
+    summary: obj.summary,
+    aiNotes: obj.aiNotes,
+    progressMetrics,
+    masteryLevel: obj.masteryLevel as 0 | 1 | 2 | 3 | 4 | 5,
+  }
+}
+
 function parseTutorJsonResponse(args: {
   responseContent: unknown
+  targetLanguageCode: string
 }) {
   const responseContent =
     typeof args.responseContent === 'string' ? args.responseContent : JSON.stringify(args.responseContent ?? '')
 
   const parsed = JSON.parse(responseContent)
 
-  // If it's an object with "response" property, extract it (preferred)
-  let responseItems: Array<{ text: string; language: string }> = []
+  // New format: single string response
+  let responseText: string = ''
   if (parsed && typeof parsed === 'object' && 'response' in parsed) {
-    responseItems = Array.isArray((parsed as any).response) ? (parsed as any).response : []
+    if (typeof parsed.response === 'string') {
+      responseText = parsed.response.trim()
+    } else if (Array.isArray(parsed.response)) {
+      // Legacy array format: join chunks
+      responseText = parsed.response
+        .map((chunk: any) => typeof chunk?.text === 'string' ? chunk.text : '')
+        .filter((text: string) => text.length > 0)
+        .join(' ')
+    }
   }
-  // Legacy: object with "chunks"
-  else if (parsed && typeof parsed === 'object' && 'chunks' in parsed) {
-    responseItems = Array.isArray((parsed as any).chunks) ? (parsed as any).chunks : []
+  
+  if (!responseText) {
+    throw new Error('No valid response text found')
   }
-  // If it's directly an array, use it
-  else if (Array.isArray(parsed)) {
-    responseItems = parsed
-  } else {
-    throw new Error('Unexpected response format')
-  }
+  
+  // Convert single string to chunk format for compatibility
+  // Determine language based on content (simple heuristic: if contains target language code, assume mixed)
+  const responseItems: Array<{ text: string; language: string }> = [{
+    text: responseText,
+    language: 'EN' // Default to EN, TTS will handle language detection
+  }]
 
   // Vocab: normalize to array of objects (possibly empty)
   let vocab: VocabItem[] = []
@@ -62,7 +143,19 @@ function parseTutorJsonResponse(args: {
     vocab = []
   }
 
-  // Normalize + drop empty chunks (prevents blank TTS)
+  // Parse topic state update (optional, may be null or absent)
+  let topicStateUpdate: TopicStateUpdate | null = null
+  if (parsed && typeof parsed === 'object' && 'topicStateUpdate' in parsed) {
+    topicStateUpdate = parseTopicStateUpdate((parsed as any).topicStateUpdate)
+  }
+  
+  // Parse sessionEnd (optional)
+  let sessionEnd: boolean = false
+  if (parsed && typeof parsed === 'object' && 'sessionEnd' in parsed) {
+    sessionEnd = parsed.sessionEnd === true
+  }
+
+  // Normalize response items
   const normalized = responseItems
     .map((item: any) => ({
       text: typeof item?.text === 'string' ? item.text.trim() : '',
@@ -74,7 +167,7 @@ function parseTutorJsonResponse(args: {
     throw new Error('No valid response items found')
   }
 
-  return { responseItems: normalized, vocab }
+  return { responseItems: normalized, vocab, topicStateUpdate, sessionEnd }
 }
 
 export async function POST(request: NextRequest) {
@@ -84,9 +177,11 @@ export async function POST(request: NextRequest) {
       learningLanguage, 
       conversationHistory, 
       inputLanguage,
-      lessonId,
-      conversationPresetId,
-      userPreferences 
+      topicIds,
+      userPreferences,
+      sessionContext,
+      topicStates,
+      userProfile
     } = await request.json()
 
     if (!message) {
@@ -107,28 +202,99 @@ export async function POST(request: NextRequest) {
     const targetLanguage = learningLanguage || 'French'
     const targetLanguageCode = languageCodeMap[targetLanguage] || 'FR'
 
-    // Get lesson config if provided (with language-specific vocabulary list when available)
-    const lesson = lessonId ? getLessonWithVocabulary(lessonId, targetLanguage) : undefined
-    const conversationPreset = getConversationPreset(conversationPresetId)
+    // Get topics with vocabulary
+    const topicIdsArray = Array.isArray(topicIds) ? topicIds : (topicIds ? [topicIds] : [])
+    
+    if (topicIdsArray.length === 0) {
+      return NextResponse.json(
+        { error: 'No topic IDs provided. Please select at least one topic.' },
+        { status: 400 }
+      )
+    }
+    
+    const topics = topicIdsArray
+      .map(id => getTopicWithVocab(id, targetLanguage))
+      .filter((t): t is TopicWithVocab => t !== undefined)
+    
+    if (topics.length === 0) {
+      const invalidIds = topicIdsArray.filter(id => !getTopicWithVocab(id, targetLanguage))
+      console.error('No valid topics found:', {
+        topicIdsArray,
+        targetLanguage,
+        invalidIds,
+        validIds: topicIdsArray.filter(id => getTopicWithVocab(id, targetLanguage))
+      })
+      return NextResponse.json(
+        { 
+          error: 'No valid topics found',
+          details: {
+            providedTopicIds: topicIdsArray,
+            targetLanguage,
+            invalidTopicIds: invalidIds
+          }
+        },
+        { status: 400 }
+      )
+    }
 
-    // Build the layered system prompt
-    const systemPrompt = lesson
-      ? buildLessonSystemPrompt({
-          targetLanguage,
-          targetLanguageCode,
-          lesson,
-          userPreferences: userPreferences as UserPreferences | undefined,
-          inputLanguage,
-        })
-      : buildConversationSystemPrompt({
-          targetLanguage,
-          targetLanguageCode,
-          userPreferences: userPreferences as UserPreferences | undefined,
-          inputLanguage,
-          conversationPreset: conversationPreset
-            ? { title: conversationPreset.title, systemInstructions: conversationPreset.systemInstructions }
-            : undefined,
-        })
+    // Build topic states map (default if not provided)
+    const topicStatesMap: { [topicId: string]: TopicState } = {}
+    if (topicStates && typeof topicStates === 'object') {
+      for (const topic of topics) {
+        const state = topicStates[topic.id]
+        if (state) {
+          topicStatesMap[topic.id] = state as TopicState
+        } else {
+          // topic is already TopicWithVocab, so we can use it directly
+          topicStatesMap[topic.id] = createDefaultTopicState(topic.id, topic, topic)
+        }
+      }
+    } else {
+      for (const topic of topics) {
+        // topic is already TopicWithVocab, so we can use it directly
+        topicStatesMap[topic.id] = createDefaultTopicState(topic.id, topic, topic)
+      }
+    }
+
+    // Log topic states being used in prompt
+    console.log('📋 API Route - Topic States in Prompt:', 
+      Object.fromEntries(
+        Object.entries(topicStatesMap).map(([topicId, state]) => [
+          topicId,
+          {
+            objectives: state.progressMetrics.objectives,
+            vocab: state.progressMetrics.vocab,
+            masteryLevel: state.masteryLevel,
+            aiNotes: state.aiNotes
+          }
+        ])
+      )
+    )
+
+    // Build session context (default if not provided)
+    const sessionCtx = sessionContext && typeof sessionContext === 'object' ? {
+      startTime: sessionContext.startTime ? new Date(sessionContext.startTime) : new Date(),
+      durationMinutes: typeof sessionContext.durationMinutes === 'number' ? sessionContext.durationMinutes : 15,
+      elapsedMinutes: typeof sessionContext.elapsedMinutes === 'number' ? sessionContext.elapsedMinutes : 0,
+      remainingMinutes: typeof sessionContext.remainingMinutes === 'number' ? sessionContext.remainingMinutes : 15,
+    } : {
+      startTime: new Date(),
+      durationMinutes: 15,
+      elapsedMinutes: 0,
+      remainingMinutes: 15,
+    }
+
+    // Build the system prompt
+    const systemPrompt = buildSessionSystemPrompt({
+      activeTopics: topics,
+      topicStates: topicStatesMap,
+      targetLanguage,
+      targetLanguageCode,
+      sessionContext: sessionCtx,
+      userPreferences: userPreferences as UserPreferences | undefined,
+      inputLanguage,
+      userProfile: userProfile || null,
+    })
 
     // Process conversation history - get last 3 conversation pairs
     const historyMessages: Array<{ role: 'user' | 'assistant', content: string }> = []
@@ -168,23 +334,39 @@ export async function POST(request: NextRequest) {
 Return ONLY a valid JSON object with keys "response" and "vocab". Do not include markdown or any extra text.`
           : null
 
+      const messages = [
+        { role: 'system', content: systemPrompt },
+        ...historyMessages,
+        { role: 'user', content: message },
+        ...(retryReminder ? [{ role: 'user' as const, content: retryReminder }] : []),
+      ]
+
+      const requestBody = {
+        model: 'gpt-4o-mini',
+        response_format: { type: 'json_object' },
+        messages,
+        max_tokens: 450,
+      }
+
+      // Log the complete LLM input
+      console.log('🤖 COMPLETE LLM INPUT:', JSON.stringify({
+        messages: messages.map((msg, idx) => ({
+          index: idx,
+          role: msg.role,
+          contentLength: msg.content.length,
+          contentPreview: msg.content.substring(0, 200) + (msg.content.length > 200 ? '...' : ''),
+          fullContent: msg.content
+        })),
+        requestBody
+      }, null, 2))
+
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiKey}`,
         },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          response_format: { type: 'json_object' },
-          messages: [
-            { role: 'system', content: systemPrompt },
-            ...historyMessages,
-            { role: 'user', content: message },
-            ...(retryReminder ? [{ role: 'user' as const, content: retryReminder }] : []),
-          ],
-          max_tokens: 450,
-        }),
+        body: JSON.stringify(requestBody),
       })
 
       if (!response.ok) {
@@ -196,9 +378,46 @@ Return ONLY a valid JSON object with keys "response" and "vocab". Do not include
       const data = await response.json()
       const responseContent = data.choices[0]?.message?.content || ''
 
+      // Log raw LLM response for debugging
+      console.log('🤖 Raw LLM Response:', responseContent)
+
       try {
-        const { responseItems, vocab } = parseTutorJsonResponse({ responseContent })
-        return NextResponse.json({ response: responseItems, vocab })
+        const { responseItems, vocab, topicStateUpdate, sessionEnd } = parseTutorJsonResponse({ 
+          responseContent,
+          targetLanguageCode
+        })
+        
+        // Log parsed response
+        console.log('📦 Parsed Response:', {
+          responseItems: responseItems.map((item: any) => item?.text || item),
+          vocab,
+          topicStateUpdate: topicStateUpdate ? {
+            topicId: topicStateUpdate.topicId,
+            event: topicStateUpdate.event,
+            objectives: topicStateUpdate.progressMetrics.objectives,
+            vocab: topicStateUpdate.progressMetrics.vocab
+          } : null,
+          sessionEnd
+        })
+        
+        // TODO: When database is set up, save topicStateUpdate here:
+        // if (topicStateUpdate) {
+        //   await db.upsertTopicState({
+        //     userId: user.id,
+        //     topicId: topicStateUpdate.topicId,
+        //     aiNotes: topicStateUpdate.aiNotes,
+        //     progressMetrics: topicStateUpdate.progressMetrics,
+        //     masteryLevel: topicStateUpdate.masteryLevel,
+        //     lastPracticed: new Date()
+        //   })
+        // }
+        
+        return NextResponse.json({ 
+          response: responseItems, 
+          vocab,
+          topicStateUpdate: topicStateUpdate || undefined,
+          sessionEnd: sessionEnd || false,
+        })
       } catch (error) {
         console.error('Failed to parse OpenAI response (attempt ' + attempt + '):', error, responseContent)
         // Try again (loop). If this was the last attempt, fall through and return retryable error.
@@ -217,3 +436,4 @@ Return ONLY a valid JSON object with keys "response" and "vocab". Do not include
     )
   }
 }
+

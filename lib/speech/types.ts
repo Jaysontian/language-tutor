@@ -65,7 +65,7 @@ export const STT_PROVIDERS: Record<SttProvider, SttProviderConfig> = {
 /**
  * TTS Provider types
  */
-export type TtsProvider = 'browser' | 'openai' | 'elevenlabs' | 'gemini-live'
+export type TtsProvider = 'browser' | 'openai' | 'elevenlabs' | 'gemini-live' | 'none'
 
 export type TtsProviderConfig = {
   id: TtsProvider
@@ -108,6 +108,14 @@ export const TTS_PROVIDERS: Record<TtsProvider, TtsProviderConfig> = {
     quality: 'high',
     isAvailable: true,
     requiresApiKey: true,
+  },
+  'none': {
+    id: 'none',
+    name: 'None',
+    description: 'Disable text-to-speech - responses will be text only',
+    quality: 'low',
+    isAvailable: true,
+    requiresApiKey: false,
   },
 }
 

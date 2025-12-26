@@ -1,7 +1,16 @@
-// Lesson configuration types and definitions
+/**
+ * Unified Topics System
+ * 
+ * Single source of truth for all learning content.
+ * Replaces the separate lesson/conversation approach.
+ */
+
+// ============================================
+// CORE TYPES
+// ============================================
+
 export type Difficulty = 1 | 2 | 3 | 4 | 5
-export type LessonType = 'vocabulary' | 'phrases' | 'grammar'
-export type CorrectionStyle = 'gentle' | 'direct' | 'minimal'
+export type TopicType = 'vocab' | 'grammar' | 'situational' | 'conversation' | 'debate'
 
 export type InteractiveElementType =
   | 'role-play'
@@ -19,13 +28,13 @@ export interface InteractiveElement {
   reaction?: string
 }
 
-export interface LessonScenario {
+export interface Scenario {
   context: string
   vocabulary?: string[]
   notes?: string[]
 }
 
-export interface VocabItemConfig {
+export interface VocabItem {
   term: string
   context?: string
   culturalNote?: string
@@ -33,55 +42,159 @@ export interface VocabItemConfig {
   example?: string
 }
 
-export interface LessonConfig {
+export interface UserPreferences {
+  personalityMode?: 'hype-coach' | 'chill-friend' | 'strict-tutor'
+  interests?: string[]
+}
+
+// ============================================
+// TOPIC DEFINITION (Content Template)
+// ============================================
+
+export interface Objective {
   id: string
-  emoji: string
+  complete: boolean
+}
+
+export interface VocabProgress {
+  term: string
+  complete: boolean
+}
+
+export interface Topic {
+  id: string
+  type: TopicType
   title: string
-  difficulty: Difficulty
-  lessonType: LessonType
-  order?: number
+  emoji: string
   description: string
+  difficulty: Difficulty
+  order?: number
+  
+  // What's covered?
+  coreObjectives: Objective[]
   focusAreas: string[]
+  
+  // Language mix target
   targetRatio: {
     english: number
     target: number
   }
-  objectives: string[]
+  
+  // Content
+  scenarios?: Scenario[]
   grammarConcepts?: string[]
-  scenarios?: LessonScenario[]
   interactiveElements?: InteractiveElement[]
+  
+  // How long to master?
+  estimatedSessions?: number
+  
+  // For conversation types: additional instructions
+  conversationInstructions?: string
 }
 
-export interface UserPreferences {
-  correctionStyle?: CorrectionStyle
-  interests?: string[]
+// Topic with language-specific vocabulary attached
+export interface TopicWithVocab extends Topic {
+  requiredVocab?: VocabProgress[]
+  vocabDetails?: VocabItem[]
 }
 
-export type LessonWithVocabulary = LessonConfig & {
-  vocabulary?: string[]
-  vocabDetails?: VocabItemConfig[]
+// ============================================
+// TOPIC STATE (Per-User Progress)
+// ============================================
+
+export interface TopicProgressMetrics {
+  objectives: Objective[]
+  vocab: VocabProgress[]
+  sessionsCompleted: number
 }
 
-// Lessons organized by difficulty
-export const lessons: Record<string, LessonConfig> = {
+export interface TopicState {
+  topicId: string
+  isActive: boolean
+  
+  /** AI writes this after each session */
+  aiNotes: string
+  
+  progressMetrics: TopicProgressMetrics
+  
+  /** 0=not started, 1-2=beginner, 3=intermediate, 4-5=mastered */
+  masteryLevel: 0 | 1 | 2 | 3 | 4 | 5
+  
+  lastPracticed: Date | null
+  nextReviewDue?: Date | null
+}
+
+export type TopicStateEvent = 
+  | 'objective_completed' 
+  | 'vocab_mastered' 
+  | 'progress_made'
+  | 'session_end'
+
+/** AI response for updating topic state */
+export interface TopicStateUpdate {
+  topicId: string
+  /** What triggered this update */
+  event: TopicStateEvent
+  /** User-visible summary (e.g., "Mastered greeting phrase こんにちは") */
+  summary: string
+  /** AI notes for next session */
+  aiNotes: string
+  progressMetrics: TopicProgressMetrics
+  masteryLevel: 0 | 1 | 2 | 3 | 4 | 5
+}
+
+export function createDefaultTopicState(topicId: string, topic?: Topic, topicWithVocab?: TopicWithVocab): TopicState {
+  const objectives = topic?.coreObjectives?.map(obj => 
+    typeof obj === 'string' 
+      ? { id: obj, complete: false }
+      : obj
+  ) || []
+  
+  const vocab = topicWithVocab?.requiredVocab?.map(v => 
+    typeof v === 'string'
+      ? { term: v, complete: false }
+      : v
+  ) || []
+
+  return {
+    topicId,
+    isActive: false,
+    aiNotes: '',
+    progressMetrics: {
+      objectives,
+      vocab,
+      sessionsCompleted: 0,
+    },
+    masteryLevel: 0,
+    lastPracticed: null,
+    nextReviewDue: null,
+  }
+}
+
+// ============================================
+// TOPIC DEFINITIONS
+// ============================================
+
+export const topics: Record<string, Topic> = {
   // ========================================
   // LEVEL 1: BEGINNER FUNDAMENTALS
   // ========================================
   
   'l1-introductions': {
     id: 'l1-introductions',
+    type: 'situational',
     order: 1,
     emoji: '👋',
     title: 'Introductions',
     difficulty: 1,
-    lessonType: 'phrases',
     description: 'Learn basic greetings and how to introduce yourself.',
     focusAreas: ['Greetings', 'Self-introduction', 'Basic courtesy'],
     targetRatio: { english: 85, target: 15 },
-    objectives: [
-      'Learn how to say hello, goodbye, and nice to meet you',
-      'Learn how to introduce yourself and ask for someone\'s name',
-      'Practice basic introductions'
+    estimatedSessions: 2,
+    coreObjectives: [
+      { id: 'Say hello, goodbye, nice to meet you', complete: false },
+      { id: 'Introduce yourself by stating your name, and ask someone their name', complete: false },
+      { id: 'Role-play a basic introduction dialogue: exchange greetings, share your name, and ask for theirs', complete: false }
     ],
     scenarios: [
       {
@@ -103,17 +216,18 @@ export const lessons: Record<string, LessonConfig> = {
 
   'l1-addressing-people': {
     id: 'l1-addressing-people',
+    type: 'vocab',
     order: 2,
     emoji: '🤝',
     title: 'Addressing People',
     difficulty: 1,
-    lessonType: 'vocabulary',
     description: 'Learn common ways to address people in various roles.',
     focusAreas: ['Titles', 'Social roles', 'Formal vs informal'],
     targetRatio: { english: 85, target: 15 },
-    objectives: [
-      'Learn how to address teachers, friends, waiters/waitresses, and neighbors',
-      'Understand formal and informal ways to address people'
+    estimatedSessions: 2,
+    coreObjectives: [
+      { id: 'Learn how to address teachers, friends, waiters/waitresses, and neighbors', complete: false },
+      { id: 'Understand formal and informal ways to address people', complete: false }
     ],
     scenarios: [
       {
@@ -144,18 +258,19 @@ export const lessons: Record<string, LessonConfig> = {
 
   'l1-family': {
     id: 'l1-family',
+    type: 'vocab',
     order: 3,
     emoji: '👨‍👩‍👧‍👦',
     title: 'Family',
     difficulty: 1,
-    lessonType: 'vocabulary',
     description: 'Talk about your family and ask about someone else\'s.',
     focusAreas: ['Family members', 'Relationships', 'Descriptions'],
     targetRatio: { english: 85, target: 15 },
-    objectives: [
-      'Learn vocabulary for family members: mother, father, brother, sister, grandparents',
-      'Describe family relationships, like "this is my mom" and "my dad is a business owner"',
-      'Practice asking about someone else\'s family, e.g., "Do you have siblings?"'
+    estimatedSessions: 2,
+    coreObjectives: [
+      { id: 'Learn vocabulary for family members: mother, father, brother, sister, grandparents', complete: false },
+      { id: 'Describe family relationships, like "this is my mom" and "my dad is a business owner"', complete: false },
+      { id: 'Practice asking about someone else\'s family, e.g., "Do you have siblings?"', complete: false }
     ],
     scenarios: [
       {
@@ -181,18 +296,19 @@ export const lessons: Record<string, LessonConfig> = {
 
   'l1-personal-info': {
     id: 'l1-personal-info',
+    type: 'situational',
     order: 4,
     emoji: '🎓',
     title: 'Personal Information',
     difficulty: 1,
-    lessonType: 'phrases',
     description: 'Learn basic details about yourself in a conversation.',
     focusAreas: ['Age', 'Location', 'Occupation', 'Q&A patterns'],
     targetRatio: { english: 85, target: 15 },
-    objectives: [
-      'Learn how to describe where you\'re from, your age, and occupation',
-      'Practice answering questions on your personal info',
-      'Learn how to ask others about their background, age, or occupation'
+    estimatedSessions: 2,
+    coreObjectives: [
+      { id: 'Learn how to describe where you\'re from, your age, and occupation', complete: false },
+      { id: 'Practice answering questions on your personal info', complete: false },
+      { id: 'Learn how to ask others about their background, age, or occupation', complete: false }
     ],
     scenarios: [
       {
@@ -223,17 +339,18 @@ export const lessons: Record<string, LessonConfig> = {
 
   'l1-common-phrases': {
     id: 'l1-common-phrases',
+    type: 'situational',
     order: 5,
     emoji: '💬',
     title: 'Common Phrases',
     difficulty: 1,
-    lessonType: 'phrases',
     description: 'Master essential everyday phrases through mini real-life situations.',
     focusAreas: ['Politeness', 'Basic responses', 'Daily expressions'],
     targetRatio: { english: 85, target: 15 },
-    objectives: [
-      'Learn phrases like thank you, please, and sorry, yes and no',
-      'Discuss how to ask and answer "How are you?" and respond with "I\'m doing good"'
+    estimatedSessions: 3,
+    coreObjectives: [
+      { id: 'Learn phrases like thank you, please, and sorry, yes and no', complete: false },
+      { id: 'Discuss how to ask and answer "How are you?" and respond with "I\'m doing good"', complete: false }
     ],
     scenarios: [
       {
@@ -276,18 +393,19 @@ export const lessons: Record<string, LessonConfig> = {
 
   'l1-likes-dislikes': {
     id: 'l1-likes-dislikes',
+    type: 'situational',
     order: 6,
     emoji: '⚽',
     title: 'Likes & Dislikes',
     difficulty: 1,
-    lessonType: 'phrases',
     description: 'Express your preferences and learn how to give examples of what you like.',
     focusAreas: ['Preferences', 'Common interests', 'Question patterns'],
     targetRatio: { english: 85, target: 15 },
-    objectives: [
-      'Learn to say "I like" and "I don\'t like"',
-      'Practice discussing common things people like',
-      'Learn to ask "What about you?"'
+    estimatedSessions: 2,
+    coreObjectives: [
+      { id: 'Learn to say "I like" and "I don\'t like"', complete: false },
+      { id: 'Practice discussing common things people like', complete: false },
+      { id: 'Learn to ask "What about you?"', complete: false }
     ],
     scenarios: [
       {
@@ -319,23 +437,123 @@ export const lessons: Record<string, LessonConfig> = {
   },
 
   // ========================================
+  // CONVERSATION TOPICS
+  // ========================================
+
+  'conv-free-chat': {
+    id: 'conv-free-chat',
+    type: 'conversation',
+    order: 1,
+    emoji: '💬',
+    title: 'Free Chat',
+    difficulty: 2,
+    description: 'Open-ended conversation, adaptive to your level.',
+    focusAreas: ['Conversation', 'Fluency', 'Natural speech'],
+    targetRatio: { english: 50, target: 50 },
+    estimatedSessions: 0, // Ongoing
+    coreObjectives: [
+      { id: 'Practice natural conversation flow', complete: false },
+      { id: 'Build confidence speaking', complete: false },
+      { id: 'Learn contextual vocabulary', complete: false }
+    ],
+    conversationInstructions: `
+CONVERSATION MODE:
+- Have a natural conversation on any topic the user brings up.
+- Ask follow-up questions and keep it flowing.
+- Gently correct only when helpful (don't over-correct).
+`.trim(),
+  },
+
+  'conv-travel-roleplay': {
+    id: 'conv-travel-roleplay',
+    type: 'conversation',
+    order: 2,
+    emoji: '✈️',
+    title: 'Travel Roleplay',
+    difficulty: 2,
+    description: 'Practice real travel situations (hotel, directions, tickets).',
+    focusAreas: ['Travel', 'Practical situations', 'Service interactions'],
+    targetRatio: { english: 40, target: 60 },
+    estimatedSessions: 0,
+    coreObjectives: [
+      { id: 'Navigate hotel check-in scenarios', complete: false },
+      { id: 'Ask for directions confidently', complete: false },
+      { id: 'Handle restaurant and shopping situations', complete: false }
+    ],
+    conversationInstructions: `
+CONVERSATION MODE (ROLEPLAY): Travel
+- You are a helpful local and occasional service staff (hotel clerk, ticket agent).
+- Keep scenarios practical and realistic.
+- Ask short, actionable questions and prompt the user to respond.
+`.trim(),
+  },
+
+  'conv-job-interview': {
+    id: 'conv-job-interview',
+    type: 'conversation',
+    order: 3,
+    emoji: '💼',
+    title: 'Job Interview',
+    difficulty: 3,
+    description: 'Practice answering common interview questions.',
+    focusAreas: ['Professional', 'Formal speech', 'Interview skills'],
+    targetRatio: { english: 30, target: 70 },
+    estimatedSessions: 0,
+    coreObjectives: [
+      { id: 'Answer common interview questions', complete: false },
+      { id: 'Practice professional vocabulary', complete: false },
+      { id: 'Improve formal speech patterns', complete: false }
+    ],
+    conversationInstructions: `
+CONVERSATION MODE (ROLEPLAY): Job interview
+- You are an interviewer. Ask one question at a time.
+- After each answer: give one short piece of feedback + a better rephrase.
+- Gradually increase difficulty if the user is comfortable.
+`.trim(),
+  },
+
+  'conv-grammar-drill': {
+    id: 'conv-grammar-drill',
+    type: 'grammar',
+    order: 4,
+    emoji: '📝',
+    title: 'Grammar Drill',
+    difficulty: 3,
+    description: 'Short drills with quick corrections and micro-explanations.',
+    focusAreas: ['Grammar', 'Structure', 'Accuracy'],
+    targetRatio: { english: 40, target: 60 },
+    estimatedSessions: 0,
+    coreObjectives: [
+      { id: 'Reinforce grammar patterns through practice', complete: false },
+      { id: 'Build quick recall of structures', complete: false },
+      { id: 'Identify and correct common errors', complete: false }
+    ],
+    conversationInstructions: `
+CONVERSATION MODE (DRILL):
+- Run short drills: prompt → user answer → quick correction → one-line tip → next prompt.
+- Keep responses concise and structured.
+`.trim(),
+  },
+
+  // ========================================
   // LEVEL 5: ADVANCED IDIOMS & EXPRESSIONS
   // ========================================
 
   'l5-business-idioms': {
     id: 'l5-business-idioms',
+    type: 'situational',
     order: 1,
     emoji: '💼',
     title: 'Business Idioms',
     difficulty: 5,
-    lessonType: 'phrases',
     description: 'Master idiomatic expressions used in professional settings.',
     focusAreas: ['Workplace idioms', 'Business metaphors', 'Professional slang'],
     targetRatio: { english: 10, target: 90 },
-    objectives: [
-      'Learn common business idioms and their cultural context',
-      'Understand metaphorical expressions in professional settings',
-      'Practice using idioms naturally in appropriate situations'
+    estimatedSessions: 4,
+    coreObjectives: [
+      { id: 'Learn common business idioms and their cultural context', complete: false },
+      { id: 'Understand metaphorical expressions in professional settings', complete: false },
+      { id: 'Practice using idioms naturally in appropriate situations', complete: false }
     ],
     scenarios: [
       {
@@ -384,18 +602,19 @@ export const lessons: Record<string, LessonConfig> = {
 
   'l5-cultural-expressions': {
     id: 'l5-cultural-expressions',
+    type: 'situational',
     order: 2,
     emoji: '🎎',
     title: 'Cultural Expressions',
     difficulty: 5,
-    lessonType: 'phrases',
     description: 'Deep dive into culturally-specific phrases and their origins.',
     focusAreas: ['Cultural context', 'Historical expressions', 'Regional variations'],
     targetRatio: { english: 10, target: 90 },
-    objectives: [
-      'Learn expressions rooted in cultural traditions',
-      'Understand when and how to use culturally-specific phrases',
-      'Recognize regional variations and nuances'
+    estimatedSessions: 4,
+    coreObjectives: [
+      { id: 'Learn expressions rooted in cultural traditions', complete: false },
+      { id: 'Understand when and how to use culturally-specific phrases', complete: false },
+      { id: 'Recognize regional variations and nuances', complete: false }
     ],
     scenarios: [
       {
@@ -404,7 +623,7 @@ export const lessons: Record<string, LessonConfig> = {
         notes: ['Explore the concept, don\'t just translate', 'Ask: Do they believe in this? How does it shape relationships?']
       },
       {
-        context: 'You want to respond politely after someone helps you—many cultures have a “set phrase” for this moment',
+        context: 'You want to respond politely after someone helps you—many cultures have a "set phrase" for this moment',
         vocabulary: ['a culturally natural expression of appreciation'],
         notes: ['Discuss when it sounds natural vs awkwardly forced', 'Talk about formality and tone']
       },
@@ -441,7 +660,7 @@ export const lessons: Record<string, LessonConfig> = {
         type: 'multiple-choice',
         prompt: 'Scenario: Someone says a cultural expression to you. Which response sounds most natural?',
         hint: 'Think about tone, formality, and what people actually say back',
-        reaction: 'Exactly—being “correct” isn’t enough; it has to sound socially natural.'
+        reaction: 'Exactly—being "correct" is not enough; it has to sound socially natural.'
       },
       {
         type: 'rapid-fire',
@@ -453,19 +672,20 @@ export const lessons: Record<string, LessonConfig> = {
 
   'l5-advanced-slang': {
     id: 'l5-advanced-slang',
+    type: 'vocab',
     order: 3,
     emoji: '🔥',
     title: 'Contemporary Slang',
     difficulty: 5,
-    lessonType: 'phrases',
     description: 'Learn modern slang and informal expressions used by native speakers.',
     focusAreas: ['Modern slang', 'Youth culture', 'Internet language', 'Casual speech'],
     targetRatio: { english: 5, target: 95 },
-    objectives: [
-      'Master current slang expressions and their proper usage',
-      'Understand generational and subcultural language differences',
-      'Practice switching between formal and casual registers',
-      'Learn internet/text slang and common abbreviations'
+    estimatedSessions: 4,
+    coreObjectives: [
+      { id: 'Master current slang expressions and their proper usage', complete: false },
+      { id: 'Understand generational and subcultural language differences', complete: false },
+      { id: 'Practice switching between formal and casual registers', complete: false },
+      { id: 'Learn internet/text slang and common abbreviations', complete: false }
     ],
     scenarios: [
       {
@@ -476,10 +696,10 @@ export const lessons: Record<string, LessonConfig> = {
       {
         context: 'You see drama unfolding online and decide you\'re just here to watch',
         vocabulary: ['spectator / watching-drama slang'],
-        notes: ['Explain the lurker/spectator mentality', 'Discuss “involved vs just observing” vibe']
+        notes: ['Explain the lurker/spectator mentality', 'Discuss "involved vs just observing" vibe']
       },
       {
-        context: 'Someone asks if you want to join the rat race—you respond with a “chill / not stressing” vibe',
+        context: 'Someone asks if you want to join the rat race—you respond with a "chill / not stressing" vibe',
         vocabulary: ['chill / not caring slang', 'opting-out slang'],
         notes: ['This is often tied to youth culture and burnout', 'Contrast passive acceptance vs actively opting out (if your language has both vibes)']
       },
@@ -489,7 +709,7 @@ export const lessons: Record<string, LessonConfig> = {
         notes: ['Discuss the arms race dynamic and collective exhaustion', 'When it sounds funny vs bitter']
       },
       {
-        context: 'You visit a hyped new café and post about it—classic “check-in / flex” energy',
+        context: 'You visit a hyped new café and post about it—classic "check-in / flex" energy',
         vocabulary: ['check-in / posting slang'],
         notes: ['Discuss performative experiences and social media culture', 'When it sounds playful vs braggy']
       }
@@ -539,9 +759,11 @@ export const lessons: Record<string, LessonConfig> = {
   }
 }
 
-// Language-specific vocabulary lists (terms or rich items).
-// Backwards-compatible: existing lessons can keep using string[].
-export const lessonVocabulary: Record<string, Record<string, Array<string | VocabItemConfig>>> = {
+// ============================================
+// LANGUAGE-SPECIFIC VOCABULARY
+// ============================================
+
+export const topicVocabulary: Record<string, Record<string, Array<string | VocabItem>>> = {
   'l1-introductions': {
     'Japanese': ['こんにちは', 'さようなら', 'はじめまして', '私の名前は...です', 'お名前は何ですか？'],
     'French': ['Bonjour', 'Au revoir', 'Enchanté(e)', 'Je m\'appelle...', 'Comment tu t\'appelles?'],
@@ -633,16 +855,25 @@ export const lessonVocabulary: Record<string, Record<string, Array<string | Voca
   }
 }
 
-// Helper function to get lesson with vocabulary
-export function getLessonWithVocabulary(lessonId: string, language: string): LessonWithVocabulary | undefined {
-  const lesson = lessons[lessonId]
-  if (!lesson) return lesson
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
 
-  const raw = lessonVocabulary[lessonId]?.[language]
-  const vocabulary: string[] | undefined = Array.isArray(raw)
+/** Get topic with language-specific vocabulary */
+export function getTopicWithVocab(topicId: string, language: string): TopicWithVocab | undefined {
+  const topic = topics[topicId]
+  if (!topic) return undefined
+
+  const raw = topicVocabulary[topicId]?.[language]
+  const requiredVocab: VocabProgress[] | undefined = Array.isArray(raw)
     ? raw
-        .map((v: any) => (typeof v === 'string' ? v : (v?.term as string)))
-        .filter((t: any): t is string => typeof t === 'string' && t.trim().length > 0)
+        .map((v: any) => {
+          const term = typeof v === 'string' ? v : (v?.term as string)
+          return term && typeof term === 'string' && term.trim().length > 0
+            ? { term: term.trim(), complete: false }
+            : null
+        })
+        .filter((v): v is VocabProgress => v !== null)
     : undefined
 
   const vocabDetails =
@@ -651,15 +882,15 @@ export function getLessonWithVocabulary(lessonId: string, language: string): Les
       : undefined
 
   return {
-    ...lesson,
-    vocabulary,
+    ...topic,
+    requiredVocab,
     vocabDetails,
   }
 }
 
-// Get all lessons as array for UI
-export function getAllLessons(): LessonConfig[] {
-  return Object.values(lessons).sort((a, b) => {
+/** Get all topics as array, sorted by difficulty then order */
+export function getAllTopics(): Topic[] {
+  return Object.values(topics).sort((a, b) => {
     if (a.difficulty !== b.difficulty) return a.difficulty - b.difficulty
     const ao = a.order ?? null
     const bo = b.order ?? null
@@ -668,4 +899,83 @@ export function getAllLessons(): LessonConfig[] {
     if (ao === null && bo !== null) return 1
     return a.title.localeCompare(b.title)
   })
+}
+
+/** Get topics by type */
+export function getTopicsByType(type: TopicType): Topic[] {
+  return getAllTopics().filter((t) => t.type === type)
+}
+
+/** Get topics by difficulty */
+export function getTopicsByDifficulty(difficulty: Difficulty): Topic[] {
+  return getAllTopics().filter((t) => t.difficulty === difficulty)
+}
+
+/** Check if topic is conversation-based (no structured objectives) */
+export function isConversationTopic(topic: Topic): boolean {
+  return topic.type === 'conversation' || topic.type === 'debate'
+}
+
+/** Check if topic is structured (has clear objectives to complete) */
+export function isStructuredTopic(topic: Topic): boolean {
+  return topic.type === 'vocab' || topic.type === 'grammar' || topic.type === 'situational'
+}
+
+// ============================================
+// TOPIC GROUPING (for UI)
+// ============================================
+
+export interface TopicGroup {
+  title: string
+  emoji: string
+  topics: Topic[]
+}
+
+export function groupTopicsByDifficulty(): TopicGroup[] {
+  const groups: TopicGroup[] = [
+    { title: 'Beginner', emoji: '🌱', topics: [] },
+    { title: 'Elementary', emoji: '📚', topics: [] },
+    { title: 'Intermediate', emoji: '🎯', topics: [] },
+    { title: 'Advanced', emoji: '🚀', topics: [] },
+    { title: 'Expert', emoji: '⭐', topics: [] },
+  ]
+  
+  for (const topic of getAllTopics()) {
+    const groupIndex = topic.difficulty - 1
+    if (groupIndex >= 0 && groupIndex < groups.length) {
+      groups[groupIndex].topics.push(topic)
+    }
+  }
+  
+  return groups.filter((g) => g.topics.length > 0)
+}
+
+export function groupTopicsByType(): TopicGroup[] {
+  return [
+    { 
+      title: 'Vocabulary', 
+      emoji: '📖', 
+      topics: getTopicsByType('vocab') 
+    },
+    { 
+      title: 'Grammar', 
+      emoji: '📝', 
+      topics: getTopicsByType('grammar') 
+    },
+    { 
+      title: 'Situational', 
+      emoji: '🎭', 
+      topics: getTopicsByType('situational') 
+    },
+    { 
+      title: 'Conversation', 
+      emoji: '💬', 
+      topics: getTopicsByType('conversation') 
+    },
+    { 
+      title: 'Debate', 
+      emoji: '🎤', 
+      topics: getTopicsByType('debate') 
+    },
+  ].filter((g) => g.topics.length > 0)
 }

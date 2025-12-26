@@ -55,6 +55,21 @@ export function useTtsRouter(config: UseTtsRouterConfig): TtsRouterResult {
   const openaiTts = useApiTts(ttsConfig, 'openai')
   const elevenlabsTts = useApiTts(ttsConfig, 'elevenlabs')
 
+  // Create a no-op TTS implementation for 'none' provider
+  const noneTts: TtsRouterResult = useMemo(() => ({
+    provider: 'none',
+    state: 'idle',
+    isSpeaking: false,
+    currentMessageId: null,
+    speak: async (_chunks: SpeechChunk[]) => {
+      // No-op: don't speak and don't call callbacks to avoid UI state changes
+      // Just resolve immediately
+    },
+    stop: () => {},
+    cancel: () => {},
+    setProvider: () => {},
+  }), [])
+
   // Get the active TTS implementation
   const activeTts = useMemo(() => {
     switch (provider) {
@@ -64,10 +79,12 @@ export function useTtsRouter(config: UseTtsRouterConfig): TtsRouterResult {
         return openaiTts
       case 'elevenlabs':
         return elevenlabsTts
+      case 'none':
+        return noneTts
       default:
         return browserTts
     }
-  }, [provider, browserTts, openaiTts, elevenlabsTts])
+  }, [provider, browserTts, openaiTts, elevenlabsTts, noneTts])
 
   const setProvider = useCallback((newProvider: TtsProvider) => {
     // Cancel any active playback before switching
@@ -81,6 +98,12 @@ export function useTtsRouter(config: UseTtsRouterConfig): TtsRouterResult {
   const speak = useCallback(async (chunks: SpeechChunk[]) => {
     // Get current provider from ref to avoid stale closures
     const currentProvider = providerRef.current
+    
+    // If provider is 'none', don't speak
+    if (currentProvider === 'none') {
+      return
+    }
+    
     // Verify activeTts matches current provider
     const expectedTts = currentProvider === 'openai' ? openaiTts : currentProvider === 'elevenlabs' ? elevenlabsTts : browserTts
     const isCorrectTts = activeTts === expectedTts

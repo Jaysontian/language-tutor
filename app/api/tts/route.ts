@@ -70,17 +70,17 @@ export async function POST(request: NextRequest) {
       const selectedVoice = voiceFromLearningLanguage || voiceFromChunkLanguage || 'alloy'
 
       // Build instructions based on context
-      let instructions = ''
-      if (isEnglish && learningLanguage && voiceFromLearningLanguage) {
-        // If speaking English, use learning language voice with English accent
-        instructions = `Speak this English text with a ${learningLanguage.toLowerCase()} accent, maintaining clear English pronunciation.`
-      } else if (learningLanguage && !isEnglish && voiceFromLearningLanguage) {
-        // If speaking in learning language, emphasize natural pronunciation
-        instructions = `Speak this ${learningLanguage} text naturally and clearly with proper pronunciation.`
-      } else if (learningLanguage && voiceFromLearningLanguage) {
-        // Fallback: use learning language voice for any text
-        instructions = `Speak this text using ${learningLanguage.toLowerCase()} pronunciation and accent.`
-      }
+      let instructions = `when the word is in ${learningLanguage.toLowerCase()} use that language to pronounce it.`
+      // if (isEnglish && learningLanguage && voiceFromLearningLanguage) {
+      //   // If speaking English, use learning language voice with English accent
+      //   instructions = `Speak this English text with a ${learningLanguage.toLowerCase()} accent, maintaining clear English pronunciation.`
+      // } else if (learningLanguage && !isEnglish && voiceFromLearningLanguage) {
+      //   // If speaking in learning language, emphasize natural pronunciation
+      //   instructions = `Speak this ${learningLanguage} text naturally and clearly with proper pronunciation.`
+      // } else if (learningLanguage && voiceFromLearningLanguage) {
+      //   // Fallback: use learning language voice for any text
+      //   instructions = `Speak this text using ${learningLanguage.toLowerCase()} pronunciation and accent.`
+      // }
 
       console.log(
         `TTS request (OpenAI) - LearningLanguage: ${learningLanguage || 'N/A'}, ChunkLanguage: ${language || 'N/A'}, Voice: ${selectedVoice}, Text: ${text.substring(0, 50)}...`

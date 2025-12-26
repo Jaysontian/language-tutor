@@ -112,7 +112,7 @@ export function useDeepgramStt(
         interim_results: true,
         utterance_end_ms: 1500,
         vad_events: true,
-        endpointing: 100,
+        endpointing: 300,
       })
 
       connection.on(LiveTranscriptionEvents.Open, () => {
