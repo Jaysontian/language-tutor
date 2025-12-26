@@ -11,7 +11,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<Tab>('v1')
 
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex flex-col h-screen pt-4">
       <NavBar activeTab={activeTab} onTabChange={setActiveTab} />
       <div className="flex-1 overflow-hidden">
         {activeTab === 'v1' ? <V1 /> : <V2 />}

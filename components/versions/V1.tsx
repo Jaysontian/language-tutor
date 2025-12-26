@@ -718,14 +718,14 @@ export function V1() {
   }
 
   return (
-    <main className="flex m-4 rounded-3xl bg-white" style={{ height: 'calc(100vh - 2rem)' }}>
+    <main className="flex m-4 rounded-3xl bg-white" style={{ height: 'calc(100% - 2rem)' }}>
       {/* Topics Sidebar - Only show when session started */}
       {sessionStarted && (
         <motion.aside
           initial={reduceMotion ? false : { opacity: 0, x: -10 }}
           animate={reduceMotion ? undefined : { opacity: 1, x: 0 }}
           transition={SPRING_SOFT}
-          className={`${isSidebarCollapsed ? 'w-16' : 'w-80'} h-[calc(100vh-4rem)] border border-neutral-200 rounded-3xl shadow-xl m-8 flex flex-col overflow-hidden transition-all duration-300`}
+          className={`${isSidebarCollapsed ? 'w-16' : 'w-80'} h-[calc(100%-4rem)] border border-neutral-200 rounded-3xl shadow-xl m-8 flex flex-col overflow-hidden transition-all duration-300`}
         >
           {/* Header */}
           <div className="flex items-center justify-between p-4 border-b border-neutral-100">

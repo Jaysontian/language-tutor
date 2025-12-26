@@ -328,14 +328,14 @@ export function V2() {
   }
 
   return (
-    <main className="flex m-4 rounded-3xl bg-white" style={{ height: 'calc(100vh - 2rem)' }}>
+    <main className="flex m-4 rounded-3xl bg-white" style={{ height: 'calc(100% - 2rem)' }}>
       {/* Topics Sidebar - Only show when session started */}
       {sessionStarted && (
         <motion.aside
           initial={reduceMotion ? false : { opacity: 0, x: -10 }}
           animate={reduceMotion ? undefined : { opacity: 1, x: 0 }}
           transition={SPRING_SOFT}
-          className={`${isSidebarCollapsed ? 'w-16' : 'w-80'} h-[calc(100vh-4rem)] border border-neutral-200 rounded-3xl shadow-xl m-8 flex flex-col overflow-hidden transition-all duration-300`}
+          className={`${isSidebarCollapsed ? 'w-16' : 'w-80'} h-[calc(100%-4rem)] border border-neutral-200 rounded-3xl shadow-xl m-8 flex flex-col overflow-hidden transition-all duration-300`}
         >
           {/* Header */}
           <div className="flex items-center justify-between p-4 border-b border-neutral-100">
@@ -474,6 +474,8 @@ export function V2() {
           /* Onboarding / Session Init */
           <div className="flex-1 flex items-center justify-center p-8">
             <AnimatePresence mode="wait">
+
+
               {showOnboardingInline ? (
                 <OnboardingInline
                   key="onboarding"
@@ -494,6 +496,15 @@ export function V2() {
                   transition={SPRING_SOFT}
                   className="w-full max-w-md mx-auto space-y-5"
                 >
+
+              {/* Gemini Live Info */}
+              <div className="">
+                <div className="text-xl font-semibold text-neutral-800">Google Gemini Live API</div>
+                <div className="text-sm text-neutral-400 py-2">
+                  Real-time audio-to-audio conversation powered by Gemini Live. Not yet complete.
+                </div>
+              </div>
+
               {/* Language Selection */}
               <div>
                 <label className="text-xs font-medium text-neutral-500 mb-2 block">Language</label>
@@ -516,16 +527,6 @@ export function V2() {
                 </Select>
               </div>
 
-              {/* Gemini Live Info */}
-              <div className="p-4 rounded-2xl bg-purple-50 border border-purple-100">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-lg">🎙️</span>
-                  <div className="text-sm font-semibold text-neutral-800">Gemini Live Mode</div>
-                </div>
-                <div className="text-xs text-neutral-600">
-                  Real-time audio-to-audio conversation powered by Gemini Live. Just speak naturally!
-                </div>
-              </div>
 
               {/* Meet GIAN - Onboarding */}
               {!userProfile?.onboardingComplete && (
